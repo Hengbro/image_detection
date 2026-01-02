@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# YOLO models (large files)
+*.pt
+
+# Output files
+head_centric_results/
+head_centric_results.json
+head_centric_results_summary.csv
+integrated_detection_results.json
+integrated_detection_results_summary.csv
+staged_detection_results_summary.csv
+
+# Test images
+cctv_images/

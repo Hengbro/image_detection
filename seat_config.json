@@ -1,0 +1,20 @@
+{
+  "bus_layout": "standard",
+  "seats": [
+    {"seat_id": 1, "bbox": [100, 200, 200, 350], "seat_type": "regular"},
+    {"seat_id": 2, "bbox": [210, 200, 310, 350], "seat_type": "regular"},
+    {"seat_id": 3, "bbox": [320, 200, 420, 350], "seat_type": "regular"},
+    {"seat_id": 4, "bbox": [430, 200, 530, 350], "seat_type": "regular"},
+    {"seat_id": 5, "bbox": [540, 200, 640, 350], "seat_type": "priority"},
+    {"seat_id": 6, "bbox": [650, 200, 750, 350], "seat_type": "priority"},
+    {"seat_id": 7, "bbox": [100, 400, 200, 550], "seat_type": "regular"},
+    {"seat_id": 8, "bbox": [210, 400, 310, 550], "seat_type": "regular"},
+    {"seat_id": 9, "bbox": [320, 400, 420, 550], "seat_type": "regular"},
+    {"seat_id": 10, "bbox": [430, 400, 530, 550], "seat_type": "regular"}
+  ],
+  "detection_rules": {
+    "min_iou_for_occupancy": 0.2,
+    "min_coverage_for_human": 0.4,
+    "object_classes": ["backpack", "handbag", "suitcase", "bag", "umbrella", "bottle"]
+  }
+}
