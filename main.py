@@ -627,7 +627,10 @@ class SimplifiedBlanketDetector:
             masked = magnitude * mask
 
             # Check for peaks (indikasi pattern berulang)
-            threshold = np.percentile(masked[masked > 0], 95)
+            positive_values = masked[masked > 0]
+            if positive_values.size == 0:
+                return 0.0, 'solid'
+            threshold = np.percentile(positive_values, 95)
             peaks = masked > threshold
             num_peaks = np.sum(peaks)
 
