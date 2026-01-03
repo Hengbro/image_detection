@@ -1,11 +1,10 @@
 """Unit tests for the head-centric human detection system."""
 
-import pytest
-import numpy as np
-import cv2
-import json
-import tempfile
 import os
+import tempfile
+
+import numpy as np
+import pytest
 
 from main import (
     # Utility function
@@ -20,9 +19,7 @@ from main import (
     DetectionThresholds,
     HeadCandidate,
     ScanRegion,
-    BlanketRegion,
     HumanDetection,
-    BlanketCoveredHuman,
     # Classes
     SimplifiedBlanketDetector,
     HeadDetectionUnit,

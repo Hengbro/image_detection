@@ -285,6 +285,7 @@ class DetectionThresholds:
         logger.info(f"Thresholds loaded from {filepath}")
         return cls.from_dict(data)
 
+
 @dataclass
 class HeadCandidate:
     """Kandidat kepala manusia"""
@@ -300,6 +301,7 @@ class HeadCandidate:
                 (self.bbox[1] + self.bbox[3]) / 2
             )
 
+
 @dataclass
 class ScanRegion:
     """Region scanning untuk grid-based approach"""
@@ -308,6 +310,7 @@ class ScanRegion:
     side: str
     row: int
 
+
 @dataclass
 class BlanketRegion:
     """Region yang terdeteksi sebagai selimut"""
@@ -315,6 +318,7 @@ class BlanketRegion:
     blanket_confidence: float
     color_info: Dict
     pattern_type: str
+
 
 @dataclass
 class BlanketCoveredHuman:
@@ -326,6 +330,7 @@ class BlanketCoveredHuman:
     blanket_region: BlanketRegion
     head_bbox: Optional[List[float]] = None
     shoulder_y: Optional[float] = None
+
 
 @dataclass
 class HumanDetection:
@@ -469,10 +474,6 @@ class SimplifiedBlanketDetector:
         blanket_regions = []
 
         h, w = roi.shape[:2]
-
-        # Convert to different color spaces
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
         # Method 1: Deteksi selimut berdasarkan color clustering
         # Blanket biasanya punya warna dominan
@@ -949,6 +950,7 @@ def integrate_with_existing_system(image: np.ndarray,
 
     return existing_detections + new_detections
 
+
 class HeadDetectionUnit:
     """Unit deteksi kepala dengan multi-method fusion"""
 
@@ -1192,7 +1194,9 @@ class HeadDetectionUnit:
         hair_ratio = np.sum(hair_mask > 0) / max(hair_mask.size, 1)
 
         # Must have some skin OR significant hair-like colors
-        return skin_ratio > self.thresholds.circular_skin_min_ratio or hair_ratio > self.thresholds.circular_hair_min_ratio
+        has_skin = skin_ratio > self.thresholds.circular_skin_min_ratio
+        has_hair = hair_ratio > self.thresholds.circular_hair_min_ratio
+        return has_skin or has_hair
 
     def _check_head_edge_pattern(self, roi: np.ndarray) -> float:
         """Check if edge pattern matches typical head shape"""
@@ -1318,7 +1322,6 @@ class HeadDetectionUnit:
             ))
 
         return candidates
-
 
     def _fuse_candidates(self, candidates: List[HeadCandidate]) -> List[HeadCandidate]:
         """Fusi kandidat dengan NMS + voting"""
@@ -1890,7 +1893,10 @@ class HeadCentricHumanDetectionSystem:
 
         height, width = image.shape[:2]
         if height < MIN_IMAGE_DIMENSION or width < MIN_IMAGE_DIMENSION:
-            raise ValueError(f"Invalid image: dimensions {width}x{height} too small (minimum {MIN_IMAGE_DIMENSION}x{MIN_IMAGE_DIMENSION})")
+            raise ValueError(
+                f"Invalid image: dimensions {width}x{height} too small "
+                f"(minimum {MIN_IMAGE_DIMENSION}x{MIN_IMAGE_DIMENSION})"
+            )
 
     def detect_humans(self, image: np.ndarray) -> List[HumanDetection]:
         """Main detection pipeline with head-centric approach"""
@@ -2278,11 +2284,11 @@ def main():
             print(f"     - Texture min: {detector.thresholds.circular_texture_variance_min}")
             print(f"     - Max confidence: {detector.thresholds.circular_confidence_max}")
 
-        print(f"\n💡 To disable circular detection:")
-        print(f"   Edit 'head_centric_thresholds.json' → set 'enable_circular_detection': false")
-        print(f"\n💡 To make circular detection stricter:")
-        print(f"   Increase: hough_param2 (40→50), circular_texture_variance_min (200→300)")
-        print(f"   Decrease: circular_confidence_max (0.7→0.6)")
+        print("\n💡 To disable circular detection:")
+        print("   Edit 'head_centric_thresholds.json' → set 'enable_circular_detection': false")
+        print("\n💡 To make circular detection stricter:")
+        print("   Increase: hough_param2 (40→50), circular_texture_variance_min (200→300)")
+        print("   Decrease: circular_confidence_max (0.7→0.6)")
 
         # Process images
         num_to_process = min(5, len(test_images))
