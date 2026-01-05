@@ -6,7 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 
 import cv2
 import numpy as np
@@ -480,13 +480,16 @@ class SimplifiedBlanketDetector:
 
         # Quantize colors untuk deteksi warna dominan
         Z = roi.reshape((-1, 3))
-        Z = np.float32(Z)
+        Z = np.float32(Z)  # type: ignore[assignment]
 
         # K-means clustering untuk cari warna dominan
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, KMEANS_ITERATIONS, 1.0)
         K = KMEANS_CLUSTERS
 
-        ret, label, center = cv2.kmeans(Z, K, None, criteria, KMEANS_ITERATIONS, cv2.KMEANS_PP_CENTERS)
+        # Type ignore for cv2.kmeans which has complex overloads
+        ret, label, center = cv2.kmeans(
+            Z, K, None, criteria, KMEANS_ITERATIONS, cv2.KMEANS_PP_CENTERS  # type: ignore[call-overload]
+        )
         center = np.uint8(center)
 
         # Untuk setiap cluster, cek apakah bisa jadi selimut
@@ -884,7 +887,7 @@ class SimplifiedBlanketDetector:
         # Sort by confidence
         blankets.sort(key=lambda b: b.blanket_confidence, reverse=True)
 
-        unique = []
+        unique: List[BlanketRegion] = []
         for blanket in blankets:
             is_duplicate = False
 
@@ -957,10 +960,10 @@ class HeadDetectionUnit:
     def __init__(self, thresholds: DetectionThresholds):
         self.thresholds = thresholds
         self.face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'  # type: ignore[attr-defined]
         )
         self.profile_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_profileface.xml'
+            cv2.data.haarcascades + 'haarcascade_profileface.xml'  # type: ignore[attr-defined]
         )
 
     def detect_all_heads(self, image: np.ndarray, offset: Tuple[int, int] = (0, 0)) -> List[HeadCandidate]:
@@ -1049,7 +1052,7 @@ class HeadDetectionUnit:
 
         candidates = []
         if circles is not None:
-            circles = np.uint16(np.around(circles))
+            circles = np.uint16(np.around(circles))  # type: ignore[assignment]
             h_img, w_img = gray.shape
 
             for (x, y, r) in circles[0]:
@@ -1143,7 +1146,7 @@ class HeadDetectionUnit:
         high_value_ratio = np.sum(v_channel > METALLIC_VALUE_THRESHOLD) / v_channel.size
 
         # If mostly desaturated and bright = metallic
-        return low_saturation_ratio > METALLIC_LOW_SAT_RATIO and high_value_ratio > METALLIC_HIGH_VAL_RATIO
+        return bool(low_saturation_ratio > METALLIC_LOW_SAT_RATIO and high_value_ratio > METALLIC_HIGH_VAL_RATIO)
 
     def _check_circularity(self, roi: np.ndarray) -> float:
         """Check how perfectly circular the object is (organic vs mechanical)"""
@@ -1196,7 +1199,7 @@ class HeadDetectionUnit:
         # Must have some skin OR significant hair-like colors
         has_skin = skin_ratio > self.thresholds.circular_skin_min_ratio
         has_hair = hair_ratio > self.thresholds.circular_hair_min_ratio
-        return has_skin or has_hair
+        return bool(has_skin or has_hair)
 
     def _check_head_edge_pattern(self, roi: np.ndarray) -> float:
         """Check if edge pattern matches typical head shape"""
@@ -1209,7 +1212,7 @@ class HeadDetectionUnit:
         # Count edge pixels
         edge_pixels = np.sum(edges > 0)
         total_pixels = edges.size
-        edge_density = edge_pixels / total_pixels
+        edge_density = float(edge_pixels / total_pixels)
 
         # Heads typically have moderate edge density (not too smooth, not too busy)
         min_density = self.thresholds.circular_edge_density_min
@@ -1220,7 +1223,7 @@ class HeadDetectionUnit:
         elif edge_density < min_density:
             return 0.0  # Too smooth (might be plain surface)
         else:
-            return max(0.0, 1.0 - (edge_density - max_density) / 0.3)
+            return float(max(0.0, 1.0 - (edge_density - max_density) / 0.3))
 
     def _check_radial_gradient(self, roi: np.ndarray) -> float:
         """Check for radial gradient pattern (heads have lighting from center)"""
@@ -1358,11 +1361,11 @@ class HeadDetectionUnit:
 
             # Average bbox if multiple detections
             if len(group) > 1:
-                avg_bbox = [
-                    np.mean([c.bbox[0] for c in group]),
-                    np.mean([c.bbox[1] for c in group]),
-                    np.mean([c.bbox[2] for c in group]),
-                    np.mean([c.bbox[3] for c in group])
+                avg_bbox: List[float] = [
+                    float(np.mean([c.bbox[0] for c in group])),
+                    float(np.mean([c.bbox[1] for c in group])),
+                    float(np.mean([c.bbox[2] for c in group])),
+                    float(np.mean([c.bbox[3] for c in group]))
                 ]
                 best.bbox = avg_bbox
                 best.confidence = min(best.confidence + FUSION_CONFIDENCE_BONUS, 1.0)
@@ -1400,10 +1403,10 @@ class UpperBodyCompositionAnalyzer:
         torso_x1 = max(0, torso_x1)
         torso_x2 = min(torso_x2, w_img)
 
-        torso_bbox = [torso_x1, torso_y1, torso_x2, torso_y2]
+        torso_bbox: List[float] = [float(torso_x1), float(torso_y1), float(torso_x2), float(torso_y2)]
         torso_roi = image[torso_y1:torso_y2, torso_x1:torso_x2]
 
-        details = {}
+        details: Dict[str, float] = {}
 
         if torso_roi.size == 0:
             return False, 0.0, None, details
@@ -1467,7 +1470,7 @@ class UpperBodyCompositionAnalyzer:
 
         # Find horizontal lines
         lines = cv2.HoughLinesP(
-            sobelx_abs,
+            sobelx_abs,  # type: ignore[call-overload]
             1,
             np.pi / 180,
             threshold=20,
@@ -1535,8 +1538,8 @@ class StructuredGridScanner:
             return False
 
         # 3️⃣ Horizontal symmetry (human body cue)
-        left_mass = np.sum(edges[:, :w // 2] > 0)
-        right_mass = np.sum(edges[:, w // 2:] > 0)
+        left_mass = int(np.sum(edges[:, :w // 2] > 0))
+        right_mass = int(np.sum(edges[:, w // 2:] > 0))
 
         symmetry_ratio = min(left_mass, right_mass) / max(left_mass, right_mass, 1)
 
@@ -1750,11 +1753,11 @@ class CrossValidationModule:
         gray = cv2.cvtColor(head_roi, cv2.COLOR_BGR2GRAY)
 
         # Check texture variance
-        texture_var = np.var(gray)
+        texture_var = float(np.var(gray))
         texture_score = min(texture_var / 500.0, 1.0)
 
         # Check if not too dark or too bright
-        brightness = np.mean(gray)
+        brightness = float(np.mean(gray))
         brightness_score = 1.0 if 30 < brightness < 220 else 0.5
 
         return (texture_score * 0.6 + brightness_score * 0.4)
@@ -1849,14 +1852,14 @@ class HeadCentricHumanDetectionSystem:
         # Initialize core components
         self.head_detector = HeadDetectionUnit(self.thresholds)
         self.body_analyzer = UpperBodyCompositionAnalyzer(self.thresholds)
-        self.grid_scanner = None  # Initialized per image
+        self.grid_scanner: Optional[StructuredGridScanner] = None  # Initialized per image
         self.cross_validator = CrossValidationModule(self.thresholds)
 
         # YOLO fallback (lazy loaded)
-        self._yolo_model = None
+        self._yolo_model: Optional[YOLO] = None
 
         # Statistics
-        self.stats = defaultdict(int)
+        self.stats: Dict[str, int] = defaultdict(int)
 
     @property
     def yolo_model(self):
@@ -1908,7 +1911,8 @@ class HeadCentricHumanDetectionSystem:
         logger.info("=" * 60)
 
         # Step 1: Initialize grid scanner
-        self.grid_scanner = StructuredGridScanner(image.shape[:2], self.thresholds)
+        image_shape: Tuple[int, int] = (image.shape[0], image.shape[1])
+        self.grid_scanner = StructuredGridScanner(image_shape, self.thresholds)
         logger.info(f"Step 1: Grid initialized ({len(self.grid_scanner.grid)} regions)")
 
         # Step 2: Structured scanning for heads
@@ -2010,7 +2014,7 @@ class HeadCentricHumanDetectionSystem:
         logger.info("=" * 60)
 
         # Breakdown by detection type
-        type_counts = defaultdict(int)
+        type_counts: Dict[str, int] = defaultdict(int)
         for det in detections:
             type_counts[det.head_type] += 1
 
@@ -2073,7 +2077,7 @@ class HeadCentricHumanDetectionSystem:
         logger.info(f"Processing: {image_path}")
         logger.info(f"{'=' * 70}")
 
-        result = {
+        result: Dict[str, Any] = {
             "image_path": image_path,
             "timestamp": datetime.now().isoformat(),
             "detections": [],
