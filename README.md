@@ -1,5 +1,10 @@
 # Head-Centric Human Detection System
 
+[![Tests](https://github.com/Hengbro/image_detection/actions/workflows/tests.yml/badge.svg)](https://github.com/Hengbro/image_detection/actions/workflows/tests.yml)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](https://github.com/Hengbro/image_detection)
+
 A computer vision system for detecting humans in CCTV/bus imagery using a head-first detection approach with multiple detection methods and cross-validation.
 
 ## Features
