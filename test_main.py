@@ -9,6 +9,7 @@ import pytest
 from main import (
     # Utility function
     calculate_iou,
+    integrate_with_existing_system,
     # Constants
     MIN_IMAGE_DIMENSION,
     BLANKET_MIN_AREA,
@@ -534,6 +535,661 @@ class TestIntegration:
         ]
         result = detector.visualize_detections(image, detections)
         assert result.shape == image.shape
+
+
+class TestHeadDetectionUnitAdvanced:
+    """Advanced tests for HeadDetectionUnit methods with low coverage."""
+
+    @pytest.fixture
+    def detector(self):
+        """Create a HeadDetectionUnit instance."""
+        thresholds = DetectionThresholds()
+        return HeadDetectionUnit(thresholds)
+
+    # Tests for _check_radial_gradient
+    def test_check_radial_gradient_valid_roi(self, detector):
+        """Test _check_radial_gradient with valid ROI that has gradient."""
+        # Create a gradient image (bright center, dark edges)
+        roi = np.zeros((50, 50), dtype=np.uint8)
+        center_y, center_x = 25, 25
+        for y in range(50):
+            for x in range(50):
+                dist = np.sqrt((x - center_x) ** 2 + (y - center_y) ** 2)
+                # Bright center, darker edges
+                roi[y, x] = max(0, 200 - int(dist * 4))
+        score = detector._check_radial_gradient(roi)
+        assert 0.0 <= score <= 1.0
+
+    def test_check_radial_gradient_small_roi(self, detector):
+        """Test _check_radial_gradient with too small ROI."""
+        roi = np.zeros((5, 5), dtype=np.uint8)
+        score = detector._check_radial_gradient(roi)
+        assert score == 0.0
+
+    def test_check_radial_gradient_flat_image(self, detector):
+        """Test _check_radial_gradient with flat (no gradient) image."""
+        roi = np.full((30, 30), 128, dtype=np.uint8)
+        score = detector._check_radial_gradient(roi)
+        # Flat image has no gradient, should return 0.0
+        assert score == 0.0
+
+    def test_check_radial_gradient_strong_gradient(self, detector):
+        """Test _check_radial_gradient with strong gradient."""
+        # Create strong gradient (center much brighter than edges)
+        roi = np.zeros((40, 40), dtype=np.uint8)
+        roi[15:25, 15:25] = 200  # Bright center
+        roi[:5, :] = 50  # Dark top
+        roi[-5:, :] = 50  # Dark bottom
+        roi[:, :5] = 50  # Dark left
+        roi[:, -5:] = 50  # Dark right
+        score = detector._check_radial_gradient(roi)
+        assert 0.0 <= score <= 1.0
+
+    # Tests for _check_circularity
+    def test_check_circularity_valid_circle(self, detector):
+        """Test _check_circularity with a circular shape."""
+        roi = np.zeros((100, 100), dtype=np.uint8)
+        # Draw a filled circle
+        import cv2
+        cv2.circle(roi, (50, 50), 30, 255, -1)
+        circularity = detector._check_circularity(roi)
+        # Circle should have high circularity (close to 1.0)
+        assert 0.7 <= circularity <= 1.0
+
+    def test_check_circularity_square(self, detector):
+        """Test _check_circularity with a square shape."""
+        roi = np.zeros((100, 100), dtype=np.uint8)
+        roi[25:75, 25:75] = 255  # Fill a square
+        circularity = detector._check_circularity(roi)
+        # Square has lower circularity than circle
+        assert 0.0 <= circularity <= 1.0
+
+    def test_check_circularity_no_contours(self, detector):
+        """Test _check_circularity with empty image."""
+        roi = np.zeros((50, 50), dtype=np.uint8)
+        circularity = detector._check_circularity(roi)
+        assert circularity == 0.0
+
+    # Tests for _is_metallic_surface
+    def test_is_metallic_surface_metallic(self, detector):
+        """Test _is_metallic_surface with metallic-like colors."""
+        # Create image with low saturation, high value (metallic appearance)
+        roi = np.zeros((50, 50, 3), dtype=np.uint8)
+        # BGR: bright gray/silver
+        roi[:, :] = [200, 200, 200]
+        result = detector._is_metallic_surface(roi)
+        assert isinstance(result, bool)
+
+    def test_is_metallic_surface_colorful(self, detector):
+        """Test _is_metallic_surface with colorful image."""
+        # Create colorful image (should not be metallic)
+        roi = np.zeros((50, 50, 3), dtype=np.uint8)
+        roi[:, :] = [0, 0, 255]  # Red in BGR
+        result = detector._is_metallic_surface(roi)
+        assert isinstance(result, bool)
+
+    def test_is_metallic_surface_empty(self, detector):
+        """Test _is_metallic_surface with empty ROI."""
+        roi = np.zeros((0, 0, 3), dtype=np.uint8)
+        result = detector._is_metallic_surface(roi)
+        assert result is False
+
+    # Tests for _detect_circular_heads
+    def test_detect_circular_heads_blank_image(self, detector):
+        """Test _detect_circular_heads with blank image."""
+        image = np.zeros((200, 200, 3), dtype=np.uint8)
+        candidates = detector._detect_circular_heads(image, (0, 0))
+        assert isinstance(candidates, list)
+
+    def test_detect_circular_heads_with_circle(self, detector):
+        """Test _detect_circular_heads with image containing circles."""
+        import cv2
+        image = np.zeros((300, 300, 3), dtype=np.uint8)
+        # Add some texture and a circle-like shape
+        image[:, :] = [100, 100, 100]
+        # Add skin-tone colored circle
+        cv2.circle(image, (150, 200), 30, [140, 140, 200], -1)
+        candidates = detector._detect_circular_heads(image, (0, 0))
+        assert isinstance(candidates, list)
+
+    def test_detect_circular_heads_with_offset(self, detector):
+        """Test _detect_circular_heads with non-zero offset."""
+        image = np.random.randint(50, 200, (200, 200, 3), dtype=np.uint8)
+        candidates = detector._detect_circular_heads(image, (50, 100))
+        assert isinstance(candidates, list)
+        # Any candidates should have offset applied
+        for candidate in candidates:
+            assert candidate.bbox[0] >= 50
+            assert candidate.bbox[1] >= 100
+
+    # Tests for _check_head_edge_pattern
+    def test_check_head_edge_pattern_moderate_edges(self, detector):
+        """Test _check_head_edge_pattern with moderate edge density."""
+        # Create image with moderate edges
+        roi = np.zeros((100, 100, 3), dtype=np.uint8)
+        roi[::3, :, :] = 200  # Horizontal lines every 3 rows
+        score = detector._check_head_edge_pattern(roi)
+        assert 0.0 <= score <= 1.0
+
+    def test_check_head_edge_pattern_smooth(self, detector):
+        """Test _check_head_edge_pattern with smooth (no edges) image."""
+        roi = np.full((50, 50, 3), 128, dtype=np.uint8)
+        score = detector._check_head_edge_pattern(roi)
+        # Too smooth should return low score
+        assert score == 0.0
+
+    def test_check_head_edge_pattern_too_many_edges(self, detector):
+        """Test _check_head_edge_pattern with too many edges."""
+        # Create very busy image
+        roi = np.random.randint(0, 255, (50, 50, 3), dtype=np.uint8)
+        score = detector._check_head_edge_pattern(roi)
+        assert 0.0 <= score <= 1.0
+
+
+class TestStructuredGridScannerAdvanced:
+    """Advanced tests for StructuredGridScanner with low coverage."""
+
+    @pytest.fixture
+    def scanner(self):
+        """Create a StructuredGridScanner instance."""
+        thresholds = DetectionThresholds()
+        return StructuredGridScanner((480, 640), thresholds)
+
+    @pytest.fixture
+    def head_detector(self):
+        """Create a HeadDetectionUnit instance."""
+        thresholds = DetectionThresholds()
+        return HeadDetectionUnit(thresholds)
+
+    # Tests for _seat_penalty
+    def test_seat_penalty_normal_head(self, scanner):
+        """Test _seat_penalty with normal head-like detection."""
+        head = HeadCandidate(
+            bbox=[100, 200, 150, 260],  # Normal aspect ratio
+            confidence=0.8,
+            detection_type='haar_front'
+        )
+        region = ScanRegion(
+            bbox=[50.0, 100.0, 300.0, 400.0],
+            priority=1.0,
+            side='left',
+            row=2
+        )
+        penalty = scanner._seat_penalty(head, region)
+        assert 0.4 <= penalty <= 1.0
+
+    def test_seat_penalty_wide_object(self, scanner):
+        """Test _seat_penalty with wide object (seat-like)."""
+        head = HeadCandidate(
+            bbox=[100, 200, 200, 240],  # Wide aspect ratio
+            confidence=0.6,
+            detection_type='circular'
+        )
+        region = ScanRegion(
+            bbox=[50.0, 100.0, 300.0, 400.0],
+            priority=1.0,
+            side='left',
+            row=1
+        )
+        penalty = scanner._seat_penalty(head, region)
+        # Wide object should get penalty
+        assert penalty < 1.0
+
+    def test_seat_penalty_touching_region_top(self, scanner):
+        """Test _seat_penalty with object touching region top."""
+        region = ScanRegion(
+            bbox=[50.0, 100.0, 300.0, 400.0],
+            priority=1.0,
+            side='left',
+            row=0
+        )
+        head = HeadCandidate(
+            bbox=[100, 102, 150, 152],  # Close to region top (100)
+            confidence=0.7,
+            detection_type='circular'
+        )
+        penalty = scanner._seat_penalty(head, region)
+        # Should have penalty for touching top
+        assert penalty < 1.0
+
+    def test_seat_penalty_front_row(self, scanner):
+        """Test _seat_penalty for front row detection."""
+        head = HeadCandidate(
+            bbox=[100, 200, 150, 250],
+            confidence=0.7,
+            detection_type='circular'
+        )
+        region = ScanRegion(
+            bbox=[50.0, 100.0, 300.0, 400.0],
+            priority=1.0,
+            side='left',
+            row=0  # Front row
+        )
+        penalty = scanner._seat_penalty(head, region)
+        # Front row should have stricter penalty
+        assert penalty < 1.0
+
+    def test_seat_penalty_minimum(self, scanner):
+        """Test _seat_penalty returns at least 0.4."""
+        head = HeadCandidate(
+            bbox=[100, 100, 200, 120],  # Very wide, touching top
+            confidence=0.5,
+            detection_type='circular'
+        )
+        region = ScanRegion(
+            bbox=[50.0, 100.0, 300.0, 400.0],
+            priority=1.0,
+            side='left',
+            row=0
+        )
+        penalty = scanner._seat_penalty(head, region)
+        assert penalty >= 0.4
+
+    # Tests for scan_with_context
+    def test_scan_with_context_blank_image(self, scanner, head_detector):
+        """Test scan_with_context with blank image."""
+        image = np.zeros((480, 640, 3), dtype=np.uint8)
+        detections = scanner.scan_with_context(image, head_detector)
+        assert isinstance(detections, list)
+
+    def test_scan_with_context_textured_image(self, scanner, head_detector):
+        """Test scan_with_context with textured image."""
+        image = np.random.randint(50, 200, (480, 640, 3), dtype=np.uint8)
+        detections = scanner.scan_with_context(image, head_detector)
+        assert isinstance(detections, list)
+
+
+class TestIntegrateWithExistingSystem:
+    """Tests for the integrate_with_existing_system function."""
+
+    def test_integrate_empty_inputs(self):
+        """Test with empty inputs."""
+        image = np.zeros((200, 200, 3), dtype=np.uint8)
+        result = integrate_with_existing_system(
+            image,
+            existing_detections=[],
+            grid_regions=[]
+        )
+        assert isinstance(result, list)
+        assert len(result) == 0
+
+    def test_integrate_with_existing_detections(self):
+        """Test with existing detections."""
+        image = np.zeros((200, 200, 3), dtype=np.uint8)
+        existing = [{'bbox': [50, 50, 100, 100]}]
+        grid_regions = [{'bbox': [50, 50, 100, 100]}]
+        result = integrate_with_existing_system(
+            image,
+            existing_detections=existing,
+            grid_regions=grid_regions
+        )
+        assert isinstance(result, list)
+        assert len(result) >= 1
+
+    def test_integrate_with_uncovered_regions(self):
+        """Test with grid regions that don't have detections."""
+        image = np.random.randint(50, 150, (200, 200, 3), dtype=np.uint8)
+        existing = [{'bbox': [0, 0, 50, 50]}]
+        grid_regions = [
+            {'bbox': [0, 0, 50, 50]},  # Has detection
+            {'bbox': [100, 100, 150, 150]}  # No detection
+        ]
+        result = integrate_with_existing_system(
+            image,
+            existing_detections=existing,
+            grid_regions=grid_regions
+        )
+        assert isinstance(result, list)
+        assert len(result) >= 1
+
+    def test_integrate_with_custom_thresholds(self):
+        """Test with custom thresholds."""
+        image = np.zeros((200, 200, 3), dtype=np.uint8)
+        thresholds = DetectionThresholds(head_min_size=30)
+        result = integrate_with_existing_system(
+            image,
+            existing_detections=[],
+            grid_regions=[{'bbox': [0, 0, 100, 100]}],
+            thresholds=thresholds
+        )
+        assert isinstance(result, list)
+
+    def test_integrate_partial_overlap(self):
+        """Test with partial overlap between detection and region."""
+        image = np.zeros((200, 200, 3), dtype=np.uint8)
+        existing = [{'bbox': [40, 40, 80, 80]}]
+        grid_regions = [{'bbox': [50, 50, 100, 100]}]  # 30% overlap
+        result = integrate_with_existing_system(
+            image,
+            existing_detections=existing,
+            grid_regions=grid_regions
+        )
+        assert isinstance(result, list)
+
+
+class TestProcessingFunctions:
+    """Tests for process_image and process_batch functions."""
+
+    @pytest.fixture
+    def detector(self):
+        """Create a HeadCentricHumanDetectionSystem instance."""
+        thresholds = DetectionThresholds()
+        return HeadCentricHumanDetectionSystem(thresholds)
+
+    def test_process_image_nonexistent_file(self, detector):
+        """Test process_image with nonexistent file."""
+        result = detector.process_image("/nonexistent/image.jpg", save_output=False)
+        assert isinstance(result, dict)
+        assert result["error"] is not None
+        assert "Cannot load image" in result["error"]
+
+    def test_process_image_valid_image(self, detector):
+        """Test process_image with a valid image file."""
+        import cv2
+        # Create a temporary image file
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+            temp_path = f.name
+        try:
+            # Create and save a test image
+            test_image = np.random.randint(0, 255, (200, 200, 3), dtype=np.uint8)
+            cv2.imwrite(temp_path, test_image)
+
+            result = detector.process_image(temp_path, save_output=False)
+            assert isinstance(result, dict)
+            assert result["error"] is None
+            assert "detections" in result
+            assert "summary" in result
+            assert result["image_path"] == temp_path
+        finally:
+            os.unlink(temp_path)
+
+    def test_process_image_with_save_output(self, detector):
+        """Test process_image with save_output=True."""
+        import cv2
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+            temp_path = f.name
+        try:
+            test_image = np.random.randint(0, 255, (200, 200, 3), dtype=np.uint8)
+            cv2.imwrite(temp_path, test_image)
+
+            result = detector.process_image(temp_path, save_output=True)
+            assert isinstance(result, dict)
+            assert result["error"] is None
+        finally:
+            os.unlink(temp_path)
+            # Clean up output directory if created
+            import shutil
+            if os.path.exists("head_centric_results"):
+                shutil.rmtree("head_centric_results")
+
+    def test_process_batch_empty_list(self, detector):
+        """Test process_batch with empty list."""
+        results = detector.process_batch([])
+        assert isinstance(results, list)
+        assert len(results) == 0
+
+    def test_process_batch_with_images(self, detector):
+        """Test process_batch with multiple images."""
+        import cv2
+        temp_paths = []
+        try:
+            # Create temporary image files
+            for i in range(2):
+                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+                    temp_path = f.name
+                    temp_paths.append(temp_path)
+                test_image = np.random.randint(0, 255, (200, 200, 3), dtype=np.uint8)
+                cv2.imwrite(temp_path, test_image)
+
+            results = detector.process_batch(temp_paths)
+            assert isinstance(results, list)
+            assert len(results) == 2
+            for result in results:
+                assert isinstance(result, dict)
+        finally:
+            for path in temp_paths:
+                if os.path.exists(path):
+                    os.unlink(path)
+            import shutil
+            if os.path.exists("head_centric_results"):
+                shutil.rmtree("head_centric_results")
+
+    def test_process_batch_mixed_valid_invalid(self, detector):
+        """Test process_batch with mix of valid and invalid paths."""
+        import cv2
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+            temp_path = f.name
+        try:
+            test_image = np.random.randint(0, 255, (200, 200, 3), dtype=np.uint8)
+            cv2.imwrite(temp_path, test_image)
+
+            results = detector.process_batch([temp_path, "/nonexistent/image.jpg"])
+            assert len(results) == 2
+            assert results[0]["error"] is None
+            assert results[1]["error"] is not None
+        finally:
+            os.unlink(temp_path)
+            import shutil
+            if os.path.exists("head_centric_results"):
+                shutil.rmtree("head_centric_results")
+
+
+class TestSaveResults:
+    """Tests for save_results and _save_summary_csv methods."""
+
+    @pytest.fixture
+    def detector(self):
+        """Create a HeadCentricHumanDetectionSystem instance."""
+        thresholds = DetectionThresholds()
+        return HeadCentricHumanDetectionSystem(thresholds)
+
+    def test_save_results_empty(self, detector):
+        """Test save_results with empty results."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = os.path.join(tmpdir, "results.json")
+            detector.save_results([], output_file)
+            assert os.path.exists(output_file)
+            assert os.path.exists(output_file.replace('.json', '_summary.csv'))
+
+    def test_save_results_with_data(self, detector):
+        """Test save_results with actual results."""
+        results = [
+            {
+                "image_path": "/test/image1.jpg",
+                "timestamp": "2024-01-01T00:00:00",
+                "detections": [
+                    {
+                        "head_bbox": [50, 50, 100, 100],
+                        "head_confidence": 0.8,
+                        "head_type": "haar_front",
+                        "final_confidence": 0.75
+                    }
+                ],
+                "summary": {
+                    "total_humans": 1,
+                    "detection_types": {
+                        "haar_front": 1,
+                        "haar_profile": 0,
+                        "circular": 0,
+                        "skin_based": 0,
+                        "yolo": 0
+                    },
+                    "confidence_stats": {
+                        "high": 0,
+                        "medium": 1,
+                        "low": 0,
+                        "average": 0.75
+                    }
+                },
+                "error": None
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = os.path.join(tmpdir, "results.json")
+            detector.save_results(results, output_file)
+
+            # Verify JSON was created
+            assert os.path.exists(output_file)
+            import json
+            with open(output_file, 'r') as f:
+                data = json.load(f)
+            assert "metadata" in data
+            assert "results" in data
+            assert len(data["results"]) == 1
+
+            # Verify CSV was created
+            csv_file = output_file.replace('.json', '_summary.csv')
+            assert os.path.exists(csv_file)
+
+    def test_save_results_with_error(self, detector):
+        """Test save_results with error in results."""
+        results = [
+            {
+                "image_path": "/test/image1.jpg",
+                "timestamp": "2024-01-01T00:00:00",
+                "detections": [],
+                "summary": {},
+                "error": "Cannot load image"
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = os.path.join(tmpdir, "results.json")
+            detector.save_results(results, output_file)
+            assert os.path.exists(output_file)
+
+
+class TestCrossValidationAdvanced:
+    """Advanced tests for CrossValidationModule with low coverage."""
+
+    @pytest.fixture
+    def validator(self):
+        """Create a CrossValidationModule instance."""
+        thresholds = DetectionThresholds()
+        return CrossValidationModule(thresholds)
+
+    def test_validate_detections_with_multiple(self, validator):
+        """Test validate_detections with multiple detections."""
+        image = np.random.randint(50, 200, (300, 300, 3), dtype=np.uint8)
+        detections = [
+            HumanDetection(
+                head_bbox=[50, 50, 100, 100],
+                head_confidence=0.9,
+                head_type='haar_front'
+            ),
+            HumanDetection(
+                head_bbox=[150, 150, 200, 200],
+                head_confidence=0.7,
+                head_type='circular'
+            )
+        ]
+        result = validator.validate_detections(detections, image)
+        assert isinstance(result, list)
+
+    def test_is_likely_artifact_valid(self, validator):
+        """Test _is_likely_artifact with valid detection."""
+        image = np.random.randint(50, 200, (200, 200, 3), dtype=np.uint8)
+        detection = HumanDetection(
+            head_bbox=[50, 100, 100, 150],  # Not at top
+            head_confidence=0.8,
+            head_type='haar_front'
+        )
+        is_artifact, artifact_score = validator._is_likely_artifact(detection, image)
+        assert isinstance(is_artifact, bool)
+        assert isinstance(artifact_score, float)
+
+    def test_is_likely_artifact_top_of_image(self, validator):
+        """Test _is_likely_artifact with detection at top of image."""
+        image = np.zeros((200, 200, 3), dtype=np.uint8)
+        detection = HumanDetection(
+            head_bbox=[50, 5, 100, 30],  # At top of image
+            head_confidence=0.6,
+            head_type='circular'
+        )
+        is_artifact, reason = validator._is_likely_artifact(detection, image)
+        assert isinstance(is_artifact, bool)
+
+    def test_check_head_quality_small_head(self, validator):
+        """Test _check_head_quality with small head detection."""
+        image = np.random.randint(50, 200, (200, 200, 3), dtype=np.uint8)
+        detection = HumanDetection(
+            head_bbox=[50, 50, 60, 60],  # Very small
+            head_confidence=0.5,
+            head_type='circular'
+        )
+        quality = validator._check_head_quality(detection, image)
+        assert 0.0 <= quality <= 1.0
+
+
+class TestYOLOFallback:
+    """Tests for YOLO fallback detection."""
+
+    @pytest.fixture
+    def detector(self):
+        """Create a HeadCentricHumanDetectionSystem instance."""
+        thresholds = DetectionThresholds()
+        return HeadCentricHumanDetectionSystem(thresholds)
+
+    def test_yolo_fallback_blank_image(self, detector):
+        """Test _yolo_fallback with blank image."""
+        image = np.zeros((300, 300, 3), dtype=np.uint8)
+        existing = []
+        result = detector._yolo_fallback(image, existing)
+        assert isinstance(result, list)
+
+    def test_yolo_fallback_with_existing_detections(self, detector):
+        """Test _yolo_fallback with existing detections."""
+        image = np.random.randint(50, 200, (300, 300, 3), dtype=np.uint8)
+        existing = [
+            HumanDetection(
+                head_bbox=[50, 50, 100, 100],
+                head_confidence=0.8,
+                head_type='haar_front'
+            )
+        ]
+        result = detector._yolo_fallback(image, existing)
+        assert isinstance(result, list)
+
+
+class TestVerifyCountLogic:
+    """Tests for _verify_count_logic method."""
+
+    @pytest.fixture
+    def detector(self):
+        """Create a HeadCentricHumanDetectionSystem instance."""
+        thresholds = DetectionThresholds()
+        return HeadCentricHumanDetectionSystem(thresholds)
+
+    def test_verify_count_logic_empty(self, detector):
+        """Test _verify_count_logic with empty detections."""
+        image = np.zeros((200, 200, 3), dtype=np.uint8)
+        # Should not raise any exceptions
+        detector._verify_count_logic([], image)
+
+    def test_verify_count_logic_multiple_types(self, detector):
+        """Test _verify_count_logic with multiple detection types."""
+        image = np.zeros((200, 200, 3), dtype=np.uint8)
+        detections = [
+            HumanDetection(
+                head_bbox=[50, 50, 100, 100],
+                head_confidence=0.9,
+                head_type='haar_front',
+                final_confidence=0.85
+            ),
+            HumanDetection(
+                head_bbox=[150, 50, 200, 100],
+                head_confidence=0.7,
+                head_type='circular',
+                final_confidence=0.65
+            ),
+            HumanDetection(
+                head_bbox=[50, 150, 100, 200],
+                head_confidence=0.8,
+                head_type='yolo',
+                final_confidence=0.75
+            )
+        ]
+        # Should not raise any exceptions
+        detector._verify_count_logic(detections, image)
 
 
 if __name__ == '__main__':
